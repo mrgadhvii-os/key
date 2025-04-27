@@ -1,11 +1,10 @@
-
-from http.server import BaseHTTPRequestHandler
-import json
+from flask import Flask, request, jsonify
 import os
 import base64
 
+app = Flask(__name__)
+
 # The encryption key is stored as base64 and obfuscated
-# This will be set in Vercel environment variables
 ENCODED_KEY_PART = os.environ.get("ENCODED_KEY_PART", "TXJHYWRodmlp")  # Default: base64 for "MrGadhvii"
 
 # Value to add to each byte for additional obfuscation
@@ -14,40 +13,33 @@ SHIFT_VALUE = int(os.environ.get("SHIFT_VALUE", "143"))
 # Secret token for authentication - change in Vercel environment
 SECRET_TOKEN = os.environ.get("SECRET_TOKEN", "MrGadhvii")
 
-def handler(request):
-    # Check authentication
-    auth_header = request.headers.get("Authorization", "")
+@app.route('/api/key', methods=['GET', 'OPTIONS'])
+def key_handler():
+    # Handle CORS preflight request
+    if request.method == 'OPTIONS':
+        return build_cors_response({})
+        
+    # Check auth token
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer ') or auth_header[7:] != SECRET_TOKEN:
+        return build_cors_response({"error": "Unauthorized"}, status=401)
     
-    # Set CORS headers
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Authorization, Content-Type",
-        "Content-Type": "application/json"
-    }
-    
-    # Handle OPTIONS request for CORS preflight
-    if request.method == "OPTIONS":
-        return {
-            "statusCode": 200,
-            "headers": headers,
-            "body": ""
-        }
-    
-    # Check token
-    if not auth_header.startswith("Bearer ") or auth_header[7:] != SECRET_TOKEN:
-        return {
-            "statusCode": 401,
-            "headers": headers,
-            "body": json.dumps({"error": "Unauthorized. Invalid or missing token."})
-        }
-    
-    # Return the key data
-    return {
-        "statusCode": 200,
-        "headers": headers,
-        "body": json.dumps({
-            "encoded": ENCODED_KEY_PART,
-            "shift": SHIFT_VALUE
-        })
-    } 
+    # Return encoded key data
+    return build_cors_response({
+        "encoded": ENCODED_KEY_PART,
+        "shift": SHIFT_VALUE
+    })
+
+def build_cors_response(data, status=200):
+    response = jsonify(data)
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.status_code = status
+    return response
+
+# Vercel needs this handler
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    return key_handler() 
